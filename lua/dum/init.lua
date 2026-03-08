@@ -4,10 +4,9 @@ local ui = require("dum.ui")
 
 local M = {}
 
---- @type { keymap: string, keymap_ctx: string, model: string }
+--- @type { keymap: string, model: string }
 M.config = {
 	keymap = "<leader>ch",
-	keymap_ctx = "<leader>cH",
 	model = "claude-sonnet-4.6",
 }
 
@@ -22,39 +21,26 @@ function M.ask()
 	local code = table.concat(stripped, "\n")
 	local model = M.config.model
 
+	-- Lightweight automatic context: language, filename, surrounding lines.
+	local filetype = vim.bo.filetype
+	local filename = vim.fn.expand("%:t")
+	local total_lines = vim.api.nvim_buf_line_count(0)
+	local before = vim.api.nvim_buf_get_lines(0, math.max(0, start_line - 51), start_line - 1, false)
+	local after = vim.api.nvim_buf_get_lines(0, end_line, math.min(total_lines, end_line + 50), false)
+
+	local ctx_parts = {
+		"Language: " .. (filetype ~= "" and filetype or "unknown"),
+		"File: " .. (filename ~= "" and filename or "unnamed"),
+	}
+	if #before > 0 then
+		table.insert(ctx_parts, "\n--- Lines before selection ---\n" .. table.concat(before, "\n"))
+	end
+	if #after > 0 then
+		table.insert(ctx_parts, "\n--- Lines after selection ---\n" .. table.concat(after, "\n"))
+	end
+	local context = table.concat(ctx_parts, "\n")
+
 	ui.input("Requirement", function(requirement)
-		if not requirement then
-			return
-		end
-
-		local stop_spinner = ui.spinner(0, start_line, end_line)
-
-		copilot.complete(code, requirement, model, function(err, result)
-			stop_spinner()
-			if err then
-				vim.notify("[dum] " .. err, vim.log.levels.ERROR)
-				return
-			end
-
-			local new_lines = selection.apply_indent(vim.split(result, "\n", { plain = true }), indent)
-
-			selection.replace(start_line, end_line, new_lines)
-		end)
-	end, { model = model })
-end
-
---- Like ask(), but also sends the full buffer as additional context.
-function M.ask_with_context()
-	local lines, start_line, end_line = selection.get()
-
-	local stripped, indent = selection.strip_indent(lines)
-	local code = table.concat(stripped, "\n")
-	local model = M.config.model
-
-	local buf_lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-	local context = table.concat(buf_lines, "\n")
-
-	ui.input("Requirement (+ buffer context)", function(requirement)
 		if not requirement then
 			return
 		end
@@ -76,7 +62,7 @@ function M.ask_with_context()
 end
 
 --- Configure the plugin and register the keymap.
---- @param opts? { keymap?: string, keymap_ctx?: string, model?: string }
+--- @param opts? { keymap?: string, model?: string }
 function M.setup(opts)
 	M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
@@ -85,13 +71,6 @@ function M.setup(opts)
 		M.config.keymap,
 		":<C-u>lua require('dum').ask()<CR>",
 		{ silent = true, desc = "Prompt Copilot on visual selection" }
-	)
-
-	vim.keymap.set(
-		"v",
-		M.config.keymap_ctx,
-		":<C-u>lua require('dum').ask_with_context()<CR>",
-		{ silent = true, desc = "Prompt Copilot on visual selection (with buffer context)" }
 	)
 end
 

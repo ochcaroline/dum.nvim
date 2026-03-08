@@ -112,7 +112,7 @@ function M.input(title, cb, opts)
 	})
 end
 
--- ─── spinner ────────────────────────────────────────────────────────────────
+-- spinner
 local SPINNER_FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
 local SPINNER_NS = vim.api.nvim_create_namespace("dum_spinner")
 

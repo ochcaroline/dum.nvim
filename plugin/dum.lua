@@ -9,9 +9,3 @@ vim.api.nvim_create_user_command("Dum", function()
 end, {
 	desc = "Ask Copilot to complete the current visual selection",
 })
-
-vim.api.nvim_create_user_command("DumCtx", function()
-	require("dum").ask_with_context()
-end, {
-	desc = "Ask Copilot to complete the current visual selection (with buffer context)",
-})

@@ -47,7 +47,7 @@ local function clear_token(tag)
 	end
 end
 
--- ─── config file reader ───────────────────────────────────────────────────────
+-- config file reader
 
 local function config_dir()
 	local xdg = vim.fs.normalize("$XDG_CONFIG_HOME")
@@ -82,8 +82,6 @@ local function read_oauth_from_config()
 	end
 	return nil
 end
-
--- ─── low-level async curl helper ─────────────────────────────────────────────
 
 --- Fire an async curl request and return the decoded JSON body via cb(err, obj).
 --- @param method  string               "GET" or "POST"
@@ -143,7 +141,7 @@ local function curl_post(url, body, cb)
 	curl_request("POST", url, {}, body, cb)
 end
 
--- ─── GitHub OAuth device flow ─────────────────────────────────────────────────
+-- GitHub OAuth device flow
 
 -- use VS Code's OAuth client ID
 -- believe it or not - this is actually used across multiple other CLIs and tools XD
@@ -195,7 +193,7 @@ local function device_flow(cb)
 	end)
 end
 
--- ─── oauth token acquisition ──────────────────────────────────────────────────
+-- oauth token acquisition
 
 --- Obtain the GitHub oauth token using the best available source, in priority order:
 ---   1. Our own persistent cache (written by a previous device flow)
@@ -223,7 +221,7 @@ local function get_oauth_token(cb)
 	device_flow(cb)
 end
 
--- ─── short-lived bearer token cache ──────────────────────────────────────────
+-- short-lived bearer token cache
 local _bearer = { token = nil, expires_at = 0 }
 
 --- Exchange the GitHub oauth token for a short-lived Copilot Bearer token.
@@ -267,20 +265,17 @@ local function bearer_token(cb)
 	end)
 end
 
--- ─── module-level constants ──────────────────────────────────────────────────
-
 local _nvim_ver = vim.version()
 local EDITOR_VERSION = ("Neovim/%d.%d.%d"):format(_nvim_ver.major, _nvim_ver.minor, _nvim_ver.patch)
 
--- ─── minimal system prompt ───────────────────────────────────────────────────
 local SYSTEM = table.concat({
 	"You are a precise code completion assistant.",
 	"Complete ONLY the provided code fragment based on the given requirement.",
-	"Return ONLY the completed code — no explanations, no markdown fences.",
+	"Return ONLY the completed code — no explanations, no markdown fences and do not repeat the context provided.",
 	"Preserve the original indentation style and language conventions.",
 }, " ")
 
--- ─── response cleanup ────────────────────────────────────────────────────────
+-- response cleanup
 
 --- Strip markdown code fences the model may add despite instructions.
 --- @param text string
@@ -293,14 +288,14 @@ local function strip_fences(text)
 	return text
 end
 
--- ─── public API ─────────────────────────────────────────────────────────────
+-- public API
 
 --- Complete a code fragment via the Copilot Chat Completions API.
 --- @param code        string
 --- @param requirement string
 --- @param model       string             e.g. "claude-sonnet-4.6"
 --- @param cb          fun(err: string|nil, result: string|nil)
---- @param context     string|nil         optional full-buffer text sent as reference
+--- @param context     string|nil         optional context sent as reference
 function M.complete(code, requirement, model, cb, context)
 	bearer_token(function(err, token)
 		if err then
@@ -309,10 +304,7 @@ function M.complete(code, requirement, model, cb, context)
 
 		local user_content = "Requirement: " .. requirement .. "\n\nCode to complete:\n" .. code
 		if context then
-			user_content = "File context (for reference only — do NOT repeat it):\n"
-				.. context
-				.. "\n\n"
-				.. user_content
+			user_content = "Context (for reference only — do NOT repeat it):\n" .. context .. "\n\n" .. user_content
 		end
 
 		local body = vim.json.encode({
