@@ -2,6 +2,12 @@
 
 Ask GitHub Copilot to complete a **visual selection** using the minimum possible context — only the selected fragment and your requirement are sent, nothing else from the file.
 
+Plugin is heavily inspired by the workflow frm [99](https://github.com/ThePrimeagen/99) - tradcoders' AI agent :D
+
+Since 99 works with all providers, but not with copilot directly - I created something that does it.
+
+> ℹ️ This is heavily opinionated. It's supposed to work for **ME**, not anyone else. Though PRs appreciated
+
 ## Why "dum"
 
 Regular LLMs are cool and everything, but I want something that gives me the ability to work precisely how I need
