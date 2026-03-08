@@ -54,6 +54,7 @@ require("dum").setup({
 
 ## How it works
 
-- Only the **stripped selected lines** (no surrounding context) and your **requirement** are sent to the Copilot Chat Completions API.
+- The **stripped selected lines** (with some basic context information) and your **requirement** are sent to the Copilot Chat Completions API.
+- The context information: filetype, filename, up to 50 lines up and below for sake of limitting the hallucinations
 - The plugin exchanges your `gh` OAuth token for a short-lived Copilot token (cached for ~30 minutes).
 - Common leading indentation is stripped before sending and restored on the result, keeping diffs clean.
