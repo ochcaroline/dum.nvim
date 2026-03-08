@@ -21,23 +21,14 @@ function M.ask()
 	local code = table.concat(stripped, "\n")
 	local model = M.config.model
 
-	-- Lightweight automatic context: language, filename, surrounding lines.
+	-- Lightweight automatic context: language, filename.
 	local filetype = vim.bo.filetype
 	local filename = vim.fn.expand("%:t")
-	local total_lines = vim.api.nvim_buf_line_count(0)
-	local before = vim.api.nvim_buf_get_lines(0, math.max(0, start_line - 51), start_line - 1, false)
-	local after = vim.api.nvim_buf_get_lines(0, end_line, math.min(total_lines, end_line + 50), false)
 
 	local ctx_parts = {
 		"Language: " .. (filetype ~= "" and filetype or "unknown"),
 		"File: " .. (filename ~= "" and filename or "unnamed"),
 	}
-	if #before > 0 then
-		table.insert(ctx_parts, "\n--- Lines before selection ---\n" .. table.concat(before, "\n"))
-	end
-	if #after > 0 then
-		table.insert(ctx_parts, "\n--- Lines after selection ---\n" .. table.concat(after, "\n"))
-	end
 	local context = table.concat(ctx_parts, "\n")
 
 	ui.input("Requirement", function(requirement)
