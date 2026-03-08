@@ -298,12 +298,21 @@ end
 --- Complete a code fragment via the Copilot Chat Completions API.
 --- @param code        string
 --- @param requirement string
---- @param model       string   e.g. "claude-sonnet-4.6"
---- @param cb fun(err: string|nil, result: string|nil)
-function M.complete(code, requirement, model, cb)
+--- @param model       string             e.g. "claude-sonnet-4.6"
+--- @param cb          fun(err: string|nil, result: string|nil)
+--- @param context     string|nil         optional full-buffer text sent as reference
+function M.complete(code, requirement, model, cb, context)
 	bearer_token(function(err, token)
 		if err then
 			return cb(err)
+		end
+
+		local user_content = "Requirement: " .. requirement .. "\n\nCode to complete:\n" .. code
+		if context then
+			user_content = "File context (for reference only — do NOT repeat it):\n"
+				.. context
+				.. "\n\n"
+				.. user_content
 		end
 
 		local body = vim.json.encode({
@@ -311,10 +320,7 @@ function M.complete(code, requirement, model, cb)
 			stream = false,
 			messages = {
 				{ role = "system", content = SYSTEM },
-				{
-					role = "user",
-					content = "Requirement: " .. requirement .. "\n\nCode to complete:\n" .. code,
-				},
+				{ role = "user", content = user_content },
 			},
 		})
 
