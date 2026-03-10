@@ -8,6 +8,8 @@ Since 99 works with all providers, but not with copilot directly - I created som
 
 > ℹ️ This is heavily opinionated. It's supposed to work for **ME**, not anyone else. Though PRs appreciated
 
+![dum](./img/dum.jpeg)
+
 ## Why "dum"
 
 Regular LLMs are cool and everything, but I want something that gives me the ability to work precisely how I need
