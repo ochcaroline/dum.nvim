@@ -45,6 +45,8 @@ function M.input(title, cb, opts)
 	end
 	local win = vim.api.nvim_open_win(buf, true, win_cfg)
 
+	vim.wo[win].wrap = true
+
 	-- go to insert mode
 	vim.schedule(function()
 		vim.cmd("startinsert")
