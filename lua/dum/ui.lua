@@ -3,6 +3,10 @@
 ---            :q  → cancel and close
 local M = {}
 
+local PROMPT_HEIGHT   = 5   -- rows in the input floating window
+local PROMPT_WIDTH    = 70  -- max columns (capped to terminal width)
+local SPINNER_INTERVAL = 100 -- ms between spinner frame advances
+
 --- Open a floating input window centered on the screen.
 ---
 --- @param title string   Window border title.
@@ -22,8 +26,8 @@ function M.input(title, cb, opts)
 	vim.bo[buf].buftype = "acwrite"
 	vim.api.nvim_buf_set_name(buf, "dum://prompt")
 
-	local height = 5
-	local width = math.min(70, vim.o.columns - 4)
+	local height = PROMPT_HEIGHT
+	local width = math.min(PROMPT_WIDTH, vim.o.columns - 4)
 	local row = math.floor((vim.o.lines - height - 2) / 2)
 	local col = math.floor((vim.o.columns - width) / 2)
 
@@ -72,15 +76,19 @@ function M.input(title, cb, opts)
 		end
 	end
 
-	-- :w  → submit
+	-- :w  → submit; keep window open when prompt is empty so the user can fix it
 	vim.api.nvim_create_autocmd("BufWriteCmd", {
 		buffer = buf,
 		callback = function()
-			submitted = true
 			local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
 			local text = vim.trim(table.concat(lines, " "))
+			if text == "" then
+				vim.notify("[dum] requirement cannot be empty — add a prompt or :q to cancel", vim.log.levels.WARN)
+				return
+			end
+			submitted = true
 			close()
-			cb(text ~= "" and text or nil)
+			cb(text)
 		end,
 	})
 
@@ -158,8 +166,8 @@ function M.spinner(bufnr, start_line, end_line)
 
 	local timer = vim.uv.new_timer()
 	timer:start(
-		100,
-		100,
+		SPINNER_INTERVAL,
+		SPINNER_INTERVAL,
 		vim.schedule_wrap(function()
 			frame = (frame % #SPINNER_FRAMES) + 1
 			if vim.api.nvim_buf_is_valid(bufnr) then

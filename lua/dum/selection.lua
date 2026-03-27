@@ -1,6 +1,18 @@
 --- Visual selection utilities.
 local M = {}
 
+--- Returns true when every line in lines is blank or whitespace-only.
+--- @param lines string[]
+--- @return boolean
+function M.is_empty(lines)
+	for _, line in ipairs(lines) do
+		if line:match("%S") then
+			return false
+		end
+	end
+	return true
+end
+
 --- Return the lines, start line, and end line of the last visual selection.
 --- Must be called after exiting visual mode (marks '< and '> are set).
 --- @return string[] lines

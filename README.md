@@ -42,21 +42,32 @@ So I named it `dum`. Because AI is kinda dum-dum. `"Dum dum" (or dum-dum) is pri
 
 1. Select code in **visual mode** (`v`, `V`, or `<C-v>`).
 2. Press `<leader>ch` (default).
-3. Type your prompt
-4. Copilot completes the selection in-place. The change is fully undoable.
+3. Type your requirement and press `:w` to submit (`:q` to cancel).
+4. Copilot streams the completion into the selection in real-time. The change is fully undoable.
+
+Press **`<leader>chc`** (or `:DumCancel`) at any time to abort an in-flight request.
 
 ## Configuration
 
 ```lua
 require("dum").setup({
-  keymap = "<leader>ch", -- visual-mode keybinding
-  model  = "claude-sonnet-4.6", -- Copilot model
+  keymap        = "<leader>ch",   -- visual-mode keybinding
+  cancel_keymap = "<leader>chc",  -- normal-mode cancel keybinding
+  model         = "claude-sonnet-4.6", -- Copilot model
+
+  -- Optional extra instructions appended to the system prompt per filetype.
+  filetype_prompts = {
+    go  = "Follow standard Go idioms and use named return values where appropriate.",
+    lua = "Follow Neovim Lua conventions. Prefer vim.api over legacy vimscript calls.",
+  },
 })
 ```
 
 ## How it works
 
-- The **stripped selected lines** (with some basic context information) and your **requirement** are sent to the Copilot Chat Completions API.
-- The context information: filetype, filename
-- The plugin exchanges your `gh` OAuth token for a short-lived Copilot token (cached for ~30 minutes).
+- The **stripped selected lines** (with some basic context information) and your **requirement** are sent to the Copilot Chat Completions API with **streaming** enabled.
+- Completion tokens are written into the buffer in real-time as they arrive.
+- The context information: filetype, filename; optionally extended via `filetype_prompts`.
+- The plugin exchanges your `gh` OAuth token for a short-lived Copilot token (cached for ~30 minutes). The token cache is stored at `stdpath("data")/dum/tokens.json` with `0600` permissions.
 - Common leading indentation is stripped before sending and restored on the result, keeping diffs clean.
+- All streaming writes are joined into a single undo entry — one `u` reverts the entire completion.

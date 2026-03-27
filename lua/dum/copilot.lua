@@ -1,5 +1,11 @@
 local M = {}
 
+-- ─── constants ────────────────────────────────────────────────────────────────
+
+local CURL_TIMEOUT   = 30    -- max seconds per request before curl gives up
+local BEARER_TTL     = 1800  -- fallback bearer token TTL when API omits expires_at
+local DEVICE_POLL_MAX = 24   -- max device-flow polls (~2 min at 5 s default interval)
+
 -- ─── persistent oauth token cache ────────────────────────────────────────────
 
 local _tokens = nil
@@ -35,6 +41,7 @@ local function persist_token(tag, value)
 	if fd then
 		fd:write(vim.json.encode(tokens))
 		fd:close()
+		vim.uv.fs_chmod(path, 384) -- 0o600: owner read/write only
 	end
 	return value
 end
@@ -90,7 +97,7 @@ end
 --- @param body    table|nil            encoded as JSON when present (implies POST body)
 --- @param cb      fun(err:string|nil, obj:table|nil)
 local function curl_request(method, url, headers, body, cb)
-	local args = { "curl", "-s", "-X", method, url }
+	local args = { "curl", "-s", "--max-time", tostring(CURL_TIMEOUT), "-X", method, url }
 	for k, v in pairs(headers or {}) do
 		table.insert(args, "-H")
 		table.insert(args, k .. ": " .. v)
@@ -148,7 +155,7 @@ end
 local COPILOT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
 
 --- Authenticate via the GitHub device flow and yield the new oauth token.
---- THis is "last resort" for authentication, if no other token was found
+--- This is the "last resort" for authentication, if no other token was found.
 --- @param cb fun(err: string|nil, token: string|nil)
 local function device_flow(cb)
 	curl_post("https://github.com/login/device/code", { client_id = COPILOT_CLIENT_ID, scope = "" }, function(err, res)
@@ -158,6 +165,7 @@ local function device_flow(cb)
 
 		local interval_ms = (res.interval or 5) * 1000
 		local device_code = res.device_code
+		local poll_count = 0
 
 		vim.notify(
 			"[dum] Visit "
@@ -168,6 +176,10 @@ local function device_flow(cb)
 		)
 
 		local function poll()
+			poll_count = poll_count + 1
+			if poll_count > DEVICE_POLL_MAX then
+				return cb("device flow timed out — run the command again to retry", nil)
+			end
 			curl_post("https://github.com/login/oauth/access_token", {
 				client_id = COPILOT_CLIENT_ID,
 				device_code = device_code,
@@ -251,7 +263,7 @@ local function bearer_token(cb)
 
 				if obj and obj.token then
 					_bearer.token = obj.token
-					_bearer.expires_at = obj.expires_at or (os.time() + 1800)
+					_bearer.expires_at = obj.expires_at or (os.time() + BEARER_TTL)
 					return cb(nil, _bearer.token)
 				end
 
@@ -288,18 +300,42 @@ local function strip_fences(text)
 	return text
 end
 
+-- cancellation
+
+local _current_job = nil
+local _cancelled = false
+
+--- Cancel the currently in-flight completion request, if any.
+function M.cancel()
+	if _current_job then
+		_cancelled = true
+		vim.fn.jobstop(_current_job)
+		_current_job = nil
+	end
+end
+
 -- public API
 
 --- Complete a code fragment via the Copilot Chat Completions API.
 --- @param code        string
 --- @param requirement string
---- @param model       string             e.g. "claude-sonnet-4.6"
+--- @param model       string   e.g. "claude-sonnet-4.6"
 --- @param cb          fun(err: string|nil, result: string|nil)
---- @param context     string|nil         optional context sent as reference
-function M.complete(code, requirement, model, cb, context)
+--- @param opts?       { context?: string, on_chunk?: fun(partial: string), system_extra?: string }
+function M.complete(code, requirement, model, cb, opts)
+	opts = opts or {}
+	local context = opts.context
+	local on_chunk = opts.on_chunk
+	local system_extra = opts.system_extra
+
 	bearer_token(function(err, token)
 		if err then
 			return cb(err)
+		end
+
+		local system = SYSTEM
+		if system_extra then
+			system = system .. " " .. system_extra
 		end
 
 		local user_content = "Requirement: " .. requirement .. "\n\nCode to complete:\n" .. code
@@ -309,17 +345,57 @@ function M.complete(code, requirement, model, cb, context)
 
 		local body = vim.json.encode({
 			model = model,
-			stream = false,
+			stream = true,
 			messages = {
-				{ role = "system", content = SYSTEM },
+				{ role = "system", content = system },
 				{ role = "user", content = user_content },
 			},
 		})
 
+		local accumulated = ""
 		local completed = false
-		vim.fn.jobstart({
+		local line_buf = ""
+		local raw_output = "" -- collect all output to diagnose non-SSE errors
+
+		local function process_sse_line(line)
+			if not line:match("%S") then
+				return
+			end
+			if line:sub(1, 6) ~= "data: " then
+				return
+			end
+			local payload = line:sub(7)
+			if payload == "[DONE]" then
+				if not completed then
+					completed = true
+					local final = strip_fences(vim.trim(accumulated))
+					vim.schedule(function()
+						cb(nil, final)
+					end)
+				end
+				return
+			end
+			local ok, obj = pcall(vim.json.decode, payload)
+			if ok and obj and obj.choices and obj.choices[1] then
+				local delta = obj.choices[1].delta
+				if delta and delta.content then
+					accumulated = accumulated .. delta.content
+					if on_chunk then
+						local snap = accumulated
+						vim.schedule(function()
+							on_chunk(snap)
+						end)
+					end
+				end
+			end
+		end
+
+		_cancelled = false
+		local job_id = vim.fn.jobstart({
 			"curl",
 			"-s",
+			"--max-time",
+			tostring(CURL_TIMEOUT),
 			"-X",
 			"POST",
 			"https://api.githubcopilot.com/chat/completions",
@@ -328,7 +404,7 @@ function M.complete(code, requirement, model, cb, context)
 			"-H",
 			"Content-Type: application/json",
 			"-H",
-			"Accept: application/json",
+			"Accept: text/event-stream",
 			"-H",
 			"Editor-Version: " .. EDITOR_VERSION,
 			"-H",
@@ -340,32 +416,52 @@ function M.complete(code, requirement, model, cb, context)
 			"-d",
 			body,
 		}, {
-			stdout_buffered = true,
+			stdout_buffered = false,
 			on_stdout = function(_, data)
 				if completed then
 					return
 				end
-				local raw = table.concat(data, "")
-				if raw == "" then
-					return
-				end
-				completed = true
-				local ok, obj = pcall(vim.json.decode, raw)
-				if ok and obj and obj.choices and obj.choices[1] then
-					local content = obj.choices[1].message and obj.choices[1].message.content or ""
-					cb(nil, strip_fences(vim.trim(content)))
-				else
-					local msg = (ok and obj and obj.error and obj.error.message) or raw
-					cb("API error: " .. msg)
+				local chunk = table.concat(data, "\n")
+				raw_output = raw_output .. chunk
+				local joined = line_buf .. chunk
+				local lines = vim.split(joined, "\n", { plain = true })
+				line_buf = lines[#lines]
+				for i = 1, #lines - 1 do
+					process_sse_line(lines[i])
 				end
 			end,
 			on_exit = function(_, code)
-				if not completed and code ~= 0 then
-					completed = true
-					cb("curl exited with code " .. code)
+				_current_job = nil
+				if completed or _cancelled then
+					_cancelled = false
+					return
 				end
+				-- Flush any line that arrived without a trailing newline.
+				if line_buf ~= "" then
+					process_sse_line(line_buf)
+					line_buf = ""
+				end
+				-- process_sse_line may have set completed=true (found [DONE] in flush).
+				if completed then
+					return
+				end
+				completed = true
+				vim.schedule(function()
+					if accumulated ~= "" then
+						cb(nil, strip_fences(vim.trim(accumulated)))
+					elseif code ~= 0 then
+						cb("curl exited with code " .. code)
+					else
+						-- No SSE content: try to surface a JSON error message.
+						local ok, obj = pcall(vim.json.decode, raw_output)
+						local msg = (ok and obj and obj.error and obj.error.message)
+							or "no content received"
+						cb(msg)
+					end
+				end)
 			end,
 		})
+		_current_job = job_id
 	end)
 end
 

@@ -9,3 +9,9 @@ vim.api.nvim_create_user_command("Dum", function()
 end, {
 	desc = "Ask Copilot to complete the current visual selection",
 })
+
+vim.api.nvim_create_user_command("DumCancel", function()
+	require("dum").cancel()
+end, {
+	desc = "Cancel the in-flight Copilot request",
+})
