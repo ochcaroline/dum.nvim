@@ -378,7 +378,7 @@ function M.complete(code, requirement, model, cb, opts)
 			local ok, obj = pcall(vim.json.decode, payload)
 			if ok and obj and obj.choices and obj.choices[1] then
 				local delta = obj.choices[1].delta
-				if delta and delta.content then
+				if delta and type(delta.content) == "string" then
 					accumulated = accumulated .. delta.content
 					if on_chunk then
 						local snap = accumulated
