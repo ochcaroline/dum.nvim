@@ -22,6 +22,7 @@ local SYSTEM = table.concat({
 	"Apply the user's requirement to the fragment and return ONLY the complete replacement code.",
 	"Do not include explanations or markdown fences.",
 	"Preserve the original indentation style and language conventions.",
+	"PONYTAIL MODE ACTIVE: use the smallest correct change; reuse existing code, then prefer the standard library or native features; do not add unrequested abstractions, dependencies, or boilerplate.",
 }, " ")
 
 local _current_job = nil
@@ -52,6 +53,9 @@ function M.complete(code, requirement, model, cb, opts)
 	local command = opts.command or "opencode"
 	local timeout = opts.timeout or 120000
 	local args = { command, "run", "--format", "json" }
+	if opts.pure ~= false then
+		table.insert(args, "--pure")
+	end
 	if model and model ~= "" then
 		table.insert(args, "--model")
 		table.insert(args, model)

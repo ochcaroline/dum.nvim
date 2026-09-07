@@ -12,7 +12,7 @@ M.config = {
 	provider = "copilot",
 	model = "claude-sonnet-4.6",
 	filetype_prompts = {},
-	opencode = { command = "opencode", model = nil, agent = "dum", timeout = 120000 },
+	opencode = { command = "opencode", model = nil, agent = "dum", timeout = 120000, pure = true },
 }
 
 -- Tracks the active request so M.cancel() can abort it from any keymap.

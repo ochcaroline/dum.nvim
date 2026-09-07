@@ -68,6 +68,7 @@ require("dum").setup({
     model = "opencode/gpt-5.6-luna", -- optional provider/model
     agent = "dum", -- read-only agent; blocks edits and shell commands
     timeout = 120000, -- fail instead of hanging forever (milliseconds)
+    pure = true, -- skip broken/incompatible global plugins for this request
   },
 })
 ```
