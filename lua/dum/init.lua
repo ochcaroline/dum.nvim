@@ -1,22 +1,25 @@
 local selection = require("dum.selection")
 local copilot = require("dum.copilot")
+local opencode = require("dum.opencode")
 local ui = require("dum.ui")
 
 local M = {}
 
---- @type { keymap: string, cancel_keymap: string, model: string, filetype_prompts: table<string,string> }
+--- @type { keymap: string, cancel_keymap: string, provider: string, model: string, filetype_prompts: table<string,string>, opencode: table }
 M.config = {
 	keymap = "<leader>ch",
 	cancel_keymap = "<leader>chc",
+	provider = "copilot",
 	model = "claude-sonnet-4.6",
 	filetype_prompts = {},
+	opencode = { command = "opencode", model = nil, agent = "dum", timeout = 120000 },
 }
 
 -- Tracks the active request so M.cancel() can abort it from any keymap.
 -- Set to { stop_spinner: fun(), cancel_token: {cancelled: bool} } during a request.
 local _active = nil
 
---- Cancel the currently in-flight request, if any.
+--- Cancel the currently in-flight completion request, if any.
 function M.cancel()
 	if not _active then
 		return
@@ -24,12 +27,16 @@ function M.cancel()
 	_active.cancel_token.cancelled = true
 	_active.stop_spinner()
 	_active = nil
-	copilot.cancel()
+	if M.config.provider == "opencode" then
+		opencode.cancel()
+	else
+		copilot.cancel()
+	end
 	vim.notify("[dum] cancelled", vim.log.levels.INFO)
 end
 
 --- Entry point: capture the last visual selection, prompt for a requirement,
---- call Copilot, and replace the selection in-place.
+--- call the configured provider, and replace the selection in-place.
 --- Call this after exiting visual mode so '< and '> marks are finalised.
 function M.ask()
 	local lines, start_line, end_line = selection.get()
@@ -42,18 +49,17 @@ function M.ask()
 	-- Strip common base indentation before sending; restore after.
 	local stripped, indent = selection.strip_indent(lines)
 	local code = table.concat(stripped, "\n")
-	local model = M.config.model
+	local is_opencode = M.config.provider == "opencode"
+	local provider = is_opencode and opencode or copilot
+	local model = is_opencode and M.config.opencode.model or M.config.model
 
 	-- Lightweight automatic context: language, filename.
 	local filetype = vim.bo.filetype
 	local filename = vim.fn.expand("%:t")
-
-	local ctx_parts = {
+	local context = table.concat({
 		"Language: " .. (filetype ~= "" and filetype or "unknown"),
 		"File: " .. (filename ~= "" and filename or "unnamed"),
-	}
-	local context = table.concat(ctx_parts, "\n")
-
+	}, "\n")
 	local system_extra = M.config.filetype_prompts[filetype]
 
 	ui.input("Requirement", function(requirement)
@@ -61,7 +67,7 @@ function M.ask()
 			return
 		end
 
-		local stop_spinner = ui.spinner(0, start_line, end_line)
+		local stop_spinner = ui.spinner(0, start_line, end_line, M.config.provider)
 		local cancel_token = { cancelled = false }
 		_active = { stop_spinner = stop_spinner, cancel_token = cancel_token }
 
@@ -77,7 +83,28 @@ function M.ask()
 			end
 		end
 
-		copilot.complete(code, requirement, model, function(err, result)
+		local request_opts = {
+			context = context,
+			system_extra = system_extra,
+			on_chunk = function(partial)
+				if cancel_token.cancelled then
+					return
+				end
+				ensure_spinner_stopped()
+				local new_lines = selection.apply_indent(vim.split(partial, "\n", { plain = true }), indent)
+				if not first_write then
+					pcall(vim.cmd, "undojoin")
+				end
+				first_write = false
+				selection.replace(start_line, current_end, new_lines)
+				current_end = start_line - 1 + #new_lines
+			end,
+		}
+		if is_opencode then
+			request_opts = vim.tbl_extend("force", request_opts, M.config.opencode)
+		end
+
+		provider.complete(code, requirement, model, function(err, result)
 			ensure_spinner_stopped()
 			if cancel_token.cancelled then
 				return
@@ -94,28 +121,12 @@ function M.ask()
 			end
 			first_write = false
 			selection.replace(start_line, current_end, new_lines)
-		end, {
-			context = context,
-			system_extra = system_extra,
-			on_chunk = function(partial)
-				if cancel_token.cancelled then
-					return
-				end
-				ensure_spinner_stopped()
-				local new_lines = selection.apply_indent(vim.split(partial, "\n", { plain = true }), indent)
-				if not first_write then
-					pcall(vim.cmd, "undojoin")
-				end
-				first_write = false
-				selection.replace(start_line, current_end, new_lines)
-				current_end = start_line - 1 + #new_lines
-			end,
-		})
+		end, request_opts)
 	end, { model = model })
 end
 
 --- Configure the plugin and register the keymaps.
---- @param opts? { keymap?: string, cancel_keymap?: string, model?: string, filetype_prompts?: table<string,string> }
+--- @param opts? { keymap?: string, cancel_keymap?: string, provider?: string, model?: string, filetype_prompts?: table<string,string>, opencode?: table }
 function M.setup(opts)
 	M.config = vim.tbl_deep_extend("force", M.config, opts or {})
 
@@ -123,14 +134,14 @@ function M.setup(opts)
 		"v",
 		M.config.keymap,
 		":<C-u>lua require('dum').ask()<CR>",
-		{ silent = true, desc = "Prompt Copilot on visual selection" }
+		{ silent = true, desc = "Prompt AI on visual selection" }
 	)
 
 	vim.keymap.set(
 		"n",
 		M.config.cancel_keymap,
 		"<cmd>lua require('dum').cancel()<CR>",
-		{ silent = true, desc = "Cancel in-flight Copilot request" }
+		{ silent = true, desc = "Cancel in-flight AI request" }
 	)
 end
 

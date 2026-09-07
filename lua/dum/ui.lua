@@ -132,8 +132,9 @@ local SPINNER_NS = vim.api.nvim_create_namespace("dum_spinner")
 --- @param bufnr     integer  buffer to annotate (0 = current)
 --- @param start_line integer 1-indexed first line of selection
 --- @param end_line   integer 1-indexed last line of selection
+--- @param provider   string|nil provider label
 --- @return fun() stop
-function M.spinner(bufnr, start_line, end_line)
+function M.spinner(bufnr, start_line, end_line, provider)
 	if bufnr == 0 then
 		bufnr = vim.api.nvim_get_current_buf()
 	end
@@ -144,7 +145,7 @@ function M.spinner(bufnr, start_line, end_line)
 		vim.api.nvim_buf_clear_namespace(bufnr, SPINNER_NS, 0, -1)
 
 		local icon = SPINNER_FRAMES[frame]
-		local label = icon .. " Asking Copilot…"
+		local label = icon .. " Asking " .. (provider or "Copilot") .. "…"
 
 		-- Line above the selection (virt_lines_above on start_line)
 		vim.api.nvim_buf_set_extmark(bufnr, SPINNER_NS, start_line - 1, 0, {
